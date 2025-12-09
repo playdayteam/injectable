@@ -12,21 +12,51 @@ import 'package:source_gen/source_gen.dart';
 import '../injectable_types.dart';
 import 'importable_type_resolver.dart';
 
-const TypeChecker _namedChecker = TypeChecker.fromRuntime(Named);
-const TypeChecker _ignoredChecker = TypeChecker.fromRuntime(IgnoreParam);
-const TypeChecker _injectableChecker = TypeChecker.fromRuntime(Injectable);
-const TypeChecker _envChecker = TypeChecker.fromRuntime(Environment);
-const TypeChecker _preResolveChecker = TypeChecker.fromRuntime(PreResolve);
-const TypeChecker _factoryParamChecker = TypeChecker.fromRuntime(FactoryParam);
-const TypeChecker _scopeChecker = TypeChecker.fromRuntime(Scope);
-const TypeChecker _factoryMethodChecker =
-    TypeChecker.fromRuntime(FactoryMethod);
-const TypeChecker _disposeMethodChecker =
-    TypeChecker.fromRuntime(DisposeMethod);
-const TypeChecker _postConstructChecker =
-    TypeChecker.fromRuntime(PostConstruct);
+const TypeChecker _namedChecker = TypeChecker.typeNamed(
+  Named,
+  inPackage: 'injectable',
+);
+const TypeChecker _ignoredChecker = TypeChecker.typeNamed(
+  IgnoreParam,
+  inPackage: 'injectable',
+);
+const TypeChecker _injectableChecker = TypeChecker.typeNamed(
+  Injectable,
+  inPackage: 'injectable',
+);
+const TypeChecker _envChecker = TypeChecker.typeNamed(
+  Environment,
+  inPackage: 'injectable',
+);
+const TypeChecker _preResolveChecker = TypeChecker.typeNamed(
+  PreResolve,
+  inPackage: 'injectable',
+);
+const TypeChecker _factoryParamChecker = TypeChecker.typeNamed(
+  FactoryParam,
+  inPackage: 'injectable',
+);
+const TypeChecker _scopeChecker = TypeChecker.typeNamed(
+  Scope,
+  inPackage: 'injectable',
+);
+const TypeChecker _factoryMethodChecker = TypeChecker.typeNamed(
+  FactoryMethod,
+  inPackage: 'injectable',
+);
+const TypeChecker _disposeMethodChecker = TypeChecker.typeNamed(
+  DisposeMethod,
+  inPackage: 'injectable',
+);
+const TypeChecker _postConstructChecker = TypeChecker.typeNamed(
+  PostConstruct,
+  inPackage: 'injectable',
+);
 
-const TypeChecker _orderChecker = TypeChecker.fromRuntime(Order);
+const TypeChecker _orderChecker = TypeChecker.typeNamed(
+  Order,
+  inPackage: 'injectable',
+);
 
 class DependencyResolver {
   final ImportableTypeResolver _typeResolver;
@@ -41,12 +71,13 @@ class DependencyResolver {
   String? _instanceName;
   bool _isAsync = false;
   bool _canBeConst = false;
-  String? _constructorName;
+  String _constructorName = '';
   final List<InjectedDependency> _dependencies = [];
   ModuleConfig? _moduleConfig;
   DisposeFunctionConfig? _disposeFunctionConfig;
   int? _order;
   String? _scope;
+  bool _cache = false;
 
   DependencyResolver(this._typeResolver);
 
@@ -60,7 +91,7 @@ class DependencyResolver {
     ExecutableElement executableElement,
   ) {
     var moduleType = _typeResolver.resolveType(moduleClazz.thisType);
-    var initializerName = executableElement.name;
+    var initializerName = executableElement.displayName;
     var isAbstract = false;
 
     final returnType = executableElement.returnType;
@@ -76,7 +107,7 @@ class DependencyResolver {
       clazz = returnType.element;
       isAbstract = true;
       throwIf(
-        executableElement.parameters.isNotEmpty,
+        executableElement.formalParameters.isNotEmpty,
         'Abstract methods can not have injectable or factory parameters',
         element: executableElement,
       );
@@ -109,28 +140,38 @@ class DependencyResolver {
       annotatedElement,
       throwOnUnresolved: false,
     );
-
     DartType? abstractType;
     ExecutableElement? disposeFuncFromAnnotation;
     List<String>? inlineEnv;
     if (injectableAnnotation != null) {
       final injectable = ConstantReader(injectableAnnotation);
-      if (injectable.instanceOf(TypeChecker.fromRuntime(LazySingleton))) {
+      _cache = injectable.peek('cache')?.boolValue == true;
+
+      if (injectable.instanceOf(
+        TypeChecker.typeNamed(LazySingleton, inPackage: 'injectable'),
+      )) {
         _injectableType = InjectableType.lazySingleton;
-        disposeFuncFromAnnotation =
-            injectable.peek('dispose')?.objectValue.toFunctionValue();
-      } else if (injectable.instanceOf(TypeChecker.fromRuntime(Singleton))) {
+        disposeFuncFromAnnotation = injectable
+            .peek('dispose')
+            ?.objectValue
+            .toFunctionValue();
+      } else if (injectable.instanceOf(
+        TypeChecker.typeNamed(Singleton, inPackage: 'injectable'),
+      )) {
         _injectableType = InjectableType.singleton;
         _signalsReady = injectable.peek('signalsReady')?.boolValue;
-        disposeFuncFromAnnotation =
-            injectable.peek('dispose')?.objectValue.toFunctionValue();
+        disposeFuncFromAnnotation = injectable
+            .peek('dispose')
+            ?.objectValue
+            .toFunctionValue();
         var dependsOn = injectable
             .peek('dependsOn')
             ?.listValue
             .map((type) => type.toTypeValue())
             .where((v) => v != null)
             .map<ImportableType>(
-                (dartType) => _typeResolver.resolveType(dartType!))
+              (dartType) => _typeResolver.resolveType(dartType!),
+            )
             .toList();
         if (dependsOn != null) {
           _dependsOn.addAll(dependsOn);
@@ -147,50 +188,60 @@ class DependencyResolver {
     }
     if (abstractType != null) {
       final abstractChecker = TypeChecker.fromStatic(abstractType);
-      var abstractSubtype = clazz.allSupertypes
-          .firstWhereOrNull((type) => abstractChecker.isExactly(type.element));
+      var abstractSubtype = clazz.allSupertypes.firstWhereOrNull(
+        (type) => abstractChecker.isExactly(type.element),
+      );
 
       throwIf(
         abstractSubtype == null,
-        '[${clazz.name}] is not a subtype of [${abstractType.nameWithoutSuffix}]',
+        '[${clazz.displayName}] is not a subtype of [${abstractType.nameWithoutSuffix}]',
         element: clazz,
       );
-
       _type = _typeResolver.resolveType(abstractSubtype!);
     }
 
-    _environments = inlineEnv ??
+    throwIf(
+      _cache == true && _injectableType != InjectableType.factory,
+      'Only factory types can be cached',
+      element: clazz,
+    );
+
+    _environments =
+        inlineEnv ??
         _envChecker
-            .annotationsOf(annotatedElement)
-            .map<String>(
-              (e) => e.getField('name')!.toStringValue()!,
-            )
+            .annotationsOf(annotatedElement, throwOnUnresolved: false)
+            .map<String>((e) => e.getField('name')!.toStringValue()!)
             .toList();
     _scope ??= _scopeChecker
-        .firstAnnotationOfExact(annotatedElement)
+        .firstAnnotationOfExact(annotatedElement, throwOnUnresolved: false)
         ?.getField('name')
         ?.toStringValue();
-    _preResolve = _preResolveChecker.hasAnnotationOfExact(annotatedElement);
-    _order ??= _orderChecker
-            .firstAnnotationOfExact(annotatedElement)
+    _preResolve = _preResolveChecker.hasAnnotationOfExact(
+      annotatedElement,
+      throwOnUnresolved: false,
+    );
+    _order ??=
+        _orderChecker
+            .firstAnnotationOfExact(annotatedElement, throwOnUnresolved: false)
             ?.getField('position')
             ?.toIntValue() ??
         0;
 
     final name = _namedChecker
-        .firstAnnotationOfExact(annotatedElement)
+        .firstAnnotationOfExact(annotatedElement, throwOnUnresolved: false)
         ?.getField('name')
         ?.toStringValue();
     if (name != null) {
       if (name.isNotEmpty) {
         _instanceName = name;
       } else {
-        _instanceName = clazz.name;
+        _instanceName = clazz.displayName;
       }
     }
 
-    var disposeMethod = clazz.methods
-        .firstWhereOrNull((m) => _disposeMethodChecker.hasAnnotationOfExact(m));
+    var disposeMethod = clazz.methods.firstWhereOrNull(
+      (m) => _disposeMethodChecker.hasAnnotationOfExact(m),
+    );
     if (disposeMethod != null) {
       throwIf(
         _injectableType == InjectableType.factory,
@@ -198,26 +249,30 @@ class DependencyResolver {
         element: clazz,
       );
       throwIf(
-        disposeMethod.parameters.any((p) =>
-            p.isRequiredNamed || p.isRequiredPositional || p.hasRequired),
+        disposeMethod.formalParameters.any(
+          (p) => p.isRequiredNamed || p.isRequiredPositional || p.isRequired,
+        ),
         'Dispose method must not take any required arguments',
         element: disposeMethod,
       );
       _disposeFunctionConfig = DisposeFunctionConfig(
         isInstance: true,
-        name: disposeMethod.name,
+        name: disposeMethod.displayName,
       );
     } else if (disposeFuncFromAnnotation != null) {
-      final params = disposeFuncFromAnnotation.parameters;
+      final params = disposeFuncFromAnnotation.formalParameters;
       throwIf(
-          params.length != 1 ||
-              _typeResolver.resolveType(params.first.type) != _type,
-          'Dispose function for $_type must have the same signature as FutureOr Function($_type instance)',
-          element: disposeFuncFromAnnotation);
+        params.length != 1 ||
+            _typeResolver.resolveType(params.first.type) != _type,
+        'Dispose function for $_type must have the same signature as FutureOr Function($_type instance)',
+        element: disposeFuncFromAnnotation,
+      );
       _disposeFunctionConfig = DisposeFunctionConfig(
-        name: disposeFuncFromAnnotation.name,
+        name: disposeFuncFromAnnotation.displayName,
         importableType: _typeResolver.resolveFunctionType(
-            disposeFuncFromAnnotation.type, disposeFuncFromAnnotation),
+          disposeFuncFromAnnotation.type,
+          disposeFuncFromAnnotation,
+        ),
       );
     }
 
@@ -241,21 +296,42 @@ class DependencyResolver {
           return false;
         },
         orElse: () {
+          final constructor =
+              clazz.unnamedConstructor ??
+              clazz.constructors.firstWhereOrNull(
+                (element) => element.lookupName?.startsWith('_') == false,
+              );
           throwIf(
-            clazz.isAbstract,
-            '''[${clazz.name}] is abstract and can not be registered directly! \nif it has a factory or a create method annotate it with @factoryMethod''',
+            clazz.isAbstract || constructor == null,
+            '''[${clazz.displayName}] is abstract and can not be registered directly! \nif it has a factory or a create method annotate it with @factoryMethod''',
             element: clazz,
           );
-          return clazz.unnamedConstructor as ExecutableElement;
+          if (clazz.unnamedConstructor == null &&
+              constructor!.lookupName != 'new') {
+            print(
+              '''[${clazz.displayName}] has no constructor annotated with @factoryMethod we wil use the first available constructor [${constructor.displayName}]''',
+            );
+          }
+          return constructor!;
         },
       );
     }
     _preResolve |= _preResolveChecker.hasAnnotationOf(executableInitializer);
 
     _isAsync = executableInitializer.returnType.isDartAsyncFuture;
-    _constructorName = executableInitializer.name;
-    for (ParameterElement param in executableInitializer.parameters) {
-      final ignoredAnnotation = _ignoredChecker.firstAnnotationOf(param);
+
+    // named factory or named constructor
+    if (executableInitializer.lookupName != "new") {
+      _constructorName = executableInitializer.lookupName ?? '';
+    } else {
+      _constructorName = '';
+    }
+    for (FormalParameterElement param
+        in executableInitializer.formalParameters) {
+      final ignoredAnnotation = _ignoredChecker.firstAnnotationOf(
+        param,
+        throwOnUnresolved: false,
+      );
 
       if (ignoredAnnotation != null) {
         throwIf(
@@ -265,15 +341,21 @@ class DependencyResolver {
         );
         continue;
       }
-      final namedAnnotation = _namedChecker.firstAnnotationOf(param);
+      final namedAnnotation = _namedChecker.firstAnnotationOf(
+        param,
+        throwOnUnresolved: false,
+      );
       final instanceName =
           namedAnnotation?.getField('type')?.toTypeValue()?.nameWithoutSuffix ??
-              namedAnnotation?.getField('name')?.toStringValue();
+          namedAnnotation?.getField('name')?.toStringValue();
 
       final resolvedType = param.type is FunctionType
           ? _typeResolver.resolveFunctionType(param.type as FunctionType)
           : _typeResolver.resolveType(param.type);
-      final isFactoryParam = _factoryParamChecker.hasAnnotationOfExact(param);
+      final isFactoryParam = _factoryParamChecker.hasAnnotationOfExact(
+        param,
+        throwOnUnresolved: false,
+      );
 
       throwIf(
         isFactoryParam && !resolvedType.isNullable && _isAsync,
@@ -281,20 +363,25 @@ class DependencyResolver {
         element: param,
       );
 
-      _dependencies.add(InjectedDependency(
-        type: resolvedType,
-        instanceName: instanceName,
-        isFactoryParam: isFactoryParam,
-        paramName: param.name,
-        isPositional: param.isPositional,
-      ));
+      _dependencies.add(
+        InjectedDependency(
+          type: resolvedType,
+          instanceName: instanceName,
+          isFactoryParam: isFactoryParam,
+          paramName: param.displayName,
+          isPositional: param.isPositional,
+          isRequired: param.isRequired,
+        ),
+      );
     }
 
-    _canBeConst = (executableInitializer is ConstructorElement &&
+    _canBeConst =
+        (executableInitializer is ConstructorElement &&
             executableInitializer.isConst) &&
         _dependencies.isEmpty;
-    final factoryParamsCount =
-        _dependencies.where((d) => d.isFactoryParam).length;
+    final factoryParamsCount = _dependencies
+        .where((d) => d.isFactoryParam)
+        .length;
 
     throwIf(
       _preResolve && factoryParamsCount != 0,
@@ -322,8 +409,9 @@ class DependencyResolver {
     String? postConstruct;
     bool postConstructReturnsSelf = false;
     for (final method in clazz.methods) {
-      final postConstructAnnotation =
-          _postConstructChecker.firstAnnotationOf(method);
+      final postConstructAnnotation = _postConstructChecker.firstAnnotationOf(
+        method,
+      );
       if (postConstructAnnotation != null) {
         throwIf(
           method.isStatic,
@@ -336,22 +424,24 @@ class DependencyResolver {
           element: method,
         );
         throwIf(
-          method.parameters
-              .any((e) => e.isRequiredNamed || e.isRequiredPositional),
+          method.formalParameters.any(
+            (e) => e.isRequiredNamed || e.isRequiredPositional,
+          ),
           'PostConstruct method can not have required parameters',
           element: method,
         );
         throwIf(
-          method.parameters
-              .any((e) => e.isRequiredNamed || e.isRequiredPositional),
+          method.formalParameters.any(
+            (e) => e.isRequiredNamed || e.isRequiredPositional,
+          ),
           'PostConstruct method can not have required parameters',
           element: method,
         );
-        postConstruct = method.name;
+        postConstruct = method.displayName;
         _isAsync = method.returnType.isDartAsyncFuture;
-        _preResolve = ConstantReader(postConstructAnnotation)
-            .read('preResolve')
-            .boolValue;
+        _preResolve = ConstantReader(
+          postConstructAnnotation,
+        ).read('preResolve').boolValue;
         final returnType = _typeResolver.resolveType(
           _isAsync
               ? (method.returnType as ParameterizedType).typeArguments.first
@@ -383,6 +473,7 @@ class DependencyResolver {
       scope: _scope,
       postConstruct: postConstruct,
       postConstructReturnsSelf: postConstructReturnsSelf,
+      cache: _cache,
     );
   }
 }

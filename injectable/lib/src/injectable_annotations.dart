@@ -33,6 +33,9 @@ class InjectableInit {
 
   /// weather to include null-safety
   /// suffixes to the generated code;
+  @Deprecated(
+    'Null-safety is now default in Dart, this flag will be removed in future releases',
+  )
   final bool usesNullSafety;
 
   ///  generator will not show warning for unregistered types
@@ -78,6 +81,16 @@ class InjectableInit {
   /// defaults to false
   final bool usesConstructorCallback;
 
+  /// Whether to generate small helper accessors for registered
+  /// types (GetIt extension getters). Example: `Service get service => get<Service>()`.
+  /// Defaults to false.
+  final bool generateAccessors;
+
+  /// a Set of environments to generate for.
+  /// if not provided, code for all environments will be generated.
+  /// defaults to empty
+  final Set<Environment> generateForEnvironments;
+
   /// default constructor
   const InjectableInit({
     this.generateForDir = const ['lib'],
@@ -87,12 +100,17 @@ class InjectableInit {
     this.ignoreUnregisteredTypes = const [],
     this.ignoreUnregisteredTypesInPackages = const [],
     this.asExtension = true,
+    @Deprecated(
+      'Null-safety is now default in Dart, this flag will be removed in future releases',
+    )
     this.usesNullSafety = true,
     this.throwOnMissingDependencies = false,
     this.includeMicroPackages = true,
     this.externalPackageModulesAfter,
     this.externalPackageModulesBefore,
     this.usesConstructorCallback = false,
+    this.generateAccessors = false,
+    this.generateForEnvironments = const {},
   }) : _isMicroPackage = false;
 
   /// default constructor
@@ -106,11 +124,13 @@ class InjectableInit {
     this.throwOnMissingDependencies = false,
     this.ignoreUnregisteredTypesInPackages = const [],
     this.usesNullSafety = true,
-  })  : _isMicroPackage = true,
-        asExtension = false,
-        includeMicroPackages = false,
-        initializerName = 'init',
-        rootDir = null;
+    this.generateForEnvironments = const {},
+  }) : _isMicroPackage = true,
+       asExtension = false,
+       includeMicroPackages = false,
+       initializerName = 'init',
+       rootDir = null,
+       generateAccessors = false;
 }
 
 /// const instance of [InjectableInit]
@@ -143,8 +163,18 @@ class Injectable {
   /// of annotating the element with @Scope
   final String? scope;
 
+  /// whether to cache the instance created by this
+  /// injectable. Only applicable for factory registrations.
+  final bool cache;
+
   /// default constructor
-  const Injectable({this.as, this.env, this.scope, this.order});
+  const Injectable({
+    this.as,
+    this.env,
+    this.scope,
+    this.order,
+    this.cache = false,
+  });
 }
 
 /// const instance of [Injectable]
@@ -214,7 +244,7 @@ const lazySingleton = LazySingleton();
   TargetKind.classType,
   TargetKind.parameter,
   TargetKind.method,
-  TargetKind.getter
+  TargetKind.getter,
 })
 class Named {
   /// The name in which an instance is registered
