@@ -28,23 +28,19 @@ void throwSourceError(String message) {
 }
 
 void throwError(String message, {Element? element}) {
-  throw InvalidGenerationSourceError(
-    message,
-    element: element,
-  );
+  throw InvalidGenerationSourceError(message, element: element);
 }
 
 void throwIf(bool condition, String message, {Element? element}) {
   if (condition) {
-    throw InvalidGenerationSourceError(
-      message,
-      element: element,
-    );
+    throw InvalidGenerationSourceError(message, element: element);
   }
 }
 
-void printBoxed(String message,
-    {String header = '--------------------------'}) {
+void printBoxed(
+  String message, {
+  String header = '--------------------------',
+}) {
   final pre = header;
   print("$pre\n$message\n${''.padRight(72, '-')} \n");
 }

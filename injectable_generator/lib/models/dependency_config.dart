@@ -20,7 +20,7 @@ class DependencyConfig {
   final String? instanceName;
   final bool? signalsReady;
   final List<String> environments;
-  final String? constructorName;
+  final String constructorName;
   final String? postConstruct;
   final bool isAsync;
   final bool postConstructReturnsSelf;
@@ -31,6 +31,7 @@ class DependencyConfig {
   final DisposeFunctionConfig? disposeFunction;
   final int orderPosition;
   final String? scope;
+  final bool cache;
 
   DependencyConfig({
     required this.type,
@@ -51,18 +52,24 @@ class DependencyConfig {
     this.scope,
     this.postConstructReturnsSelf = false,
     this.postConstruct,
+    this.cache = false,
   });
 
   // used for testing
-  factory DependencyConfig.factory(String type,
-      {List<String> deps = const [],
-      List<String> envs = const [],
-      int order = 0}) {
+  factory DependencyConfig.factory(
+    String type, {
+    String? typeImpl,
+    List<String> deps = const [],
+    List<String> envs = const [],
+    int order = 0,
+    bool cache = false,
+  }) {
     return DependencyConfig(
       type: ImportableType(name: type),
-      typeImpl: ImportableType(name: type),
+      typeImpl: ImportableType(name: typeImpl ?? type),
       environments: envs,
       orderPosition: order,
+      cache: cache,
       dependencies: deps
           .map(
             (e) => InjectedDependency(
@@ -75,13 +82,23 @@ class DependencyConfig {
   }
 
   // used for testing
-  factory DependencyConfig.singleton(String type,
-      {List<String> deps = const [], int order = 0}) {
+  factory DependencyConfig.singleton(
+    String type, {
+    String? typeImpl,
+    List<String> deps = const [],
+    List<String> envs = const [],
+    int order = 0,
+    bool lazy = false,
+  }) {
     return DependencyConfig(
       type: ImportableType(name: type),
-      typeImpl: ImportableType(name: type),
-      injectableType: InjectableType.singleton,
+      typeImpl: ImportableType(name: typeImpl ?? type),
+      injectableType: lazy
+          ? InjectableType.lazySingleton
+          : InjectableType.singleton,
+      environments: envs,
       orderPosition: order,
+      cache: false,
       dependencies: deps
           .map(
             (e) => InjectedDependency(
@@ -119,6 +136,7 @@ class DependencyConfig {
           disposeFunction == other.disposeFunction &&
           scope == other.scope &&
           moduleConfig == other.moduleConfig &&
+          cache == other.cache &&
           postConstruct == other.postConstruct &&
           postConstructReturnsSelf == other.postConstructReturnsSelf &&
           orderPosition == other.orderPosition);
@@ -141,10 +159,12 @@ class DependencyConfig {
       canBeConst.hashCode ^
       orderPosition.hashCode ^
       postConstruct.hashCode ^
+      cache.hashCode ^
       postConstructReturnsSelf.hashCode ^
       scope.hashCode;
 
-  late final int identityHash = type.identity.hashCode ^
+  late final int identityHash =
+      type.identity.hashCode ^
       typeImpl.identity.hashCode ^
       injectableType.hashCode ^
       instanceName.hashCode ^
@@ -188,6 +208,7 @@ class DependencyConfig {
       injectableType: json['injectableType'],
       instanceName: json['instanceName'],
       signalsReady: json['signalsReady'],
+      cache: (json['cache'] as bool?) ?? false,
       environments: json['environments']?.cast<String>(),
       constructorName: json['constructorName'],
       postConstruct: json['postConstruct'],
@@ -204,26 +225,26 @@ class DependencyConfig {
   }
 
   Map<String, dynamic> toJson() => {
-        'type': type.toJson(),
-        'typeImpl': typeImpl.toJson(),
-        "isAsync": isAsync,
-        "postConstructReturnsSelf": postConstructReturnsSelf,
-        "preResolve": preResolve,
-        "canBeConst": canBeConst,
-        "injectableType": injectableType,
-        if (moduleConfig != null) 'moduleConfig': moduleConfig!.toJson(),
-        if (disposeFunction != null)
-          'disposeFunction': disposeFunction!.toJson(),
-        "dependsOn": dependsOn.map((v) => v.toJson()).toList(),
-        "environments": environments,
-        "dependencies": dependencies.map((v) => v.toJson()).toList(),
-        if (instanceName != null) "instanceName": instanceName,
-        if (signalsReady != null) "signalsReady": signalsReady,
-        if (constructorName != null) "constructorName": constructorName,
-        if (postConstruct != null) "postConstruct": postConstruct,
-        "orderPosition": orderPosition,
-        if (scope != null) "scope": scope,
-      };
+    'type': type.toJson(),
+    'typeImpl': typeImpl.toJson(),
+    "isAsync": isAsync,
+    "postConstructReturnsSelf": postConstructReturnsSelf,
+    "preResolve": preResolve,
+    "canBeConst": canBeConst,
+    "injectableType": injectableType,
+    if (moduleConfig != null) 'moduleConfig': moduleConfig!.toJson(),
+    if (disposeFunction != null) 'disposeFunction': disposeFunction!.toJson(),
+    "dependsOn": dependsOn.map((v) => v.toJson()).toList(),
+    "environments": environments,
+    "dependencies": dependencies.map((v) => v.toJson()).toList(),
+    if (instanceName != null) "instanceName": instanceName,
+    "cache": cache,
+    if (signalsReady != null) "signalsReady": signalsReady,
+    "constructorName": constructorName,
+    if (postConstruct != null) "postConstruct": postConstruct,
+    "orderPosition": orderPosition,
+    if (scope != null) "scope": scope,
+  };
 
   bool get isFromModule => moduleConfig != null;
 

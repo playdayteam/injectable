@@ -1,3 +1,4 @@
+// coverage:ignore-file
 import 'package:build/build.dart';
 import 'package:source_gen/source_gen.dart';
 
@@ -14,7 +15,9 @@ Builder injectableBuilder(BuilderOptions options) {
 }
 
 Builder injectableConfigBuilder(BuilderOptions options) {
-  return LibraryBuilder(InjectableConfigGenerator(),
-      generatedExtension: '.config.dart',
-      additionalOutputExtensions: ['.module.dart']);
+  return LibraryBuilder(
+    InjectableConfigGenerator(),
+    generatedExtension: '.config.dart',
+    additionalOutputExtensions: ['.module.dart'],
+  );
 }
