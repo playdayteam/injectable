@@ -3,7 +3,7 @@ import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:collection/collection.dart';
 import 'package:injectable_generator/models/importable_type.dart';
-import 'package:injectable_generator/utils.dart';
+import 'package:injectable_generator/resolvers/utils.dart';
 import 'package:path/path.dart' as p;
 
 abstract class ImportableTypeResolver {
