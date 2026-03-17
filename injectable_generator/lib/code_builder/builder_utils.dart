@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:code_builder/code_builder.dart';
 import 'package:collection/collection.dart';
+import 'package:injectable/injectable.dart';
 import 'package:injectable_generator/models/dependency_config.dart';
 import 'package:injectable_generator/models/importable_type.dart';
 import 'package:injectable_generator/models/injected_dependency.dart';
@@ -107,6 +108,13 @@ void _sortByDependents(
         return true;
       }
 
+      /// special case for environments set
+      if (iDep.type.name == 'Set' &&
+          iDep.type.typeArguments.firstOrNull?.name == 'String' &&
+          iDep.instanceName == kEnvironmentsName) {
+        return true;
+      }
+
       /// for empty environments we check to see if all the dependencies from
       /// all the environments are already in sorted
       if (dep.environments.isEmpty) {
@@ -149,7 +157,6 @@ void _sortByDependents(
     var difference = unSorted
         .where((element) => !sorted.contains(element))
         .toList();
-
     _sortByDependents(difference, sorted);
   }
 }

@@ -138,10 +138,9 @@ class LibraryGenerator with SharedGeneratorCode {
 
     final isMicroPackage = microPackageName != null;
 
-    throwIf(
-      isMicroPackage && scopedDeps.length > 1,
-      'Scopes are not supported in micro package modules!',
-    );
+    if (isMicroPackage && scopedDeps.length > 1) {
+      throw 'Scopes are not supported in micro package modules!';
+    }
 
     // make sure root scope is always generated even if empty
     if (!scopedDeps.containsKey(null)) {
@@ -609,13 +608,15 @@ class InitMethodGenerator with SharedGeneratorCode {
     } else if (dep.injectableType == InjectableType.lazySingleton) {
       funcReferName = isOrHasAsyncDep ? 'lazySingletonAsync' : 'lazySingleton';
     }
-    throwIf(funcReferName == null, 'Injectable type is not supported');
+    if (funcReferName == null) {
+      throw 'Injectable type is not supported';
+    }
 
     final instanceBuilder = dep.isFromModule
         ? _buildInstanceForModule(dep)
         : _buildInstance(dep);
     final instanceBuilderCode = _buildInstanceBuilderCode(instanceBuilder, dep);
-    final registerExpression = _ghLocalRefer.property(funcReferName!).call(
+    final registerExpression = _ghLocalRefer.property(funcReferName).call(
       [
         Method(
           (b) => b

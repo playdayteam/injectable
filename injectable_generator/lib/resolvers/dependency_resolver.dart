@@ -6,57 +6,54 @@ import 'package:injectable_generator/models/dispose_function_config.dart';
 import 'package:injectable_generator/models/importable_type.dart';
 import 'package:injectable_generator/models/injected_dependency.dart';
 import 'package:injectable_generator/models/module_config.dart';
+import 'package:injectable_generator/resolvers/utils.dart';
 import 'package:injectable_generator/utils.dart';
 import 'package:source_gen/source_gen.dart';
 
 import '../injectable_types.dart';
 import 'importable_type_resolver.dart';
 
-const TypeChecker _namedChecker = TypeChecker.typeNamed(
-  Named,
-  inPackage: 'injectable',
-);
-const TypeChecker _ignoredChecker = TypeChecker.typeNamed(
-  IgnoreParam,
-  inPackage: 'injectable',
-);
-const TypeChecker _injectableChecker = TypeChecker.typeNamed(
+const _injectableChecker = TypeChecker.typeNamed(
   Injectable,
   inPackage: 'injectable',
 );
-const TypeChecker _envChecker = TypeChecker.typeNamed(
-  Environment,
+const _lazySingletonChecker = TypeChecker.typeNamed(
+  LazySingleton,
   inPackage: 'injectable',
 );
-const TypeChecker _preResolveChecker = TypeChecker.typeNamed(
-  PreResolve,
-  inPackage: 'injectable',
-);
-const TypeChecker _factoryParamChecker = TypeChecker.typeNamed(
-  FactoryParam,
-  inPackage: 'injectable',
-);
-const TypeChecker _scopeChecker = TypeChecker.typeNamed(
-  Scope,
-  inPackage: 'injectable',
-);
-const TypeChecker _factoryMethodChecker = TypeChecker.typeNamed(
-  FactoryMethod,
-  inPackage: 'injectable',
-);
-const TypeChecker _disposeMethodChecker = TypeChecker.typeNamed(
-  DisposeMethod,
-  inPackage: 'injectable',
-);
-const TypeChecker _postConstructChecker = TypeChecker.typeNamed(
-  PostConstruct,
+const _singletonChecker = TypeChecker.typeNamed(
+  Singleton,
   inPackage: 'injectable',
 );
 
-const TypeChecker _orderChecker = TypeChecker.typeNamed(
-  Order,
+const _namedChecker = TypeChecker.typeNamed(Named, inPackage: 'injectable');
+const _ignoredChecker = TypeChecker.typeNamed(
+  IgnoreParam,
   inPackage: 'injectable',
 );
+const _envChecker = TypeChecker.typeNamed(Environment, inPackage: 'injectable');
+const _preResolveChecker = TypeChecker.typeNamed(
+  PreResolve,
+  inPackage: 'injectable',
+);
+const _factoryParamChecker = TypeChecker.typeNamed(
+  FactoryParam,
+  inPackage: 'injectable',
+);
+const _scopeChecker = TypeChecker.typeNamed(Scope, inPackage: 'injectable');
+const _factoryMethodChecker = TypeChecker.typeNamed(
+  FactoryMethod,
+  inPackage: 'injectable',
+);
+const _disposeMethodChecker = TypeChecker.typeNamed(
+  DisposeMethod,
+  inPackage: 'injectable',
+);
+const _postConstructChecker = TypeChecker.typeNamed(
+  PostConstruct,
+  inPackage: 'injectable',
+);
+const _orderChecker = TypeChecker.typeNamed(Order, inPackage: 'injectable');
 
 class DependencyResolver {
   final ImportableTypeResolver _typeResolver;
@@ -147,17 +144,13 @@ class DependencyResolver {
       final injectable = ConstantReader(injectableAnnotation);
       _cache = injectable.peek('cache')?.boolValue == true;
 
-      if (injectable.instanceOf(
-        TypeChecker.typeNamed(LazySingleton, inPackage: 'injectable'),
-      )) {
+      if (injectable.instanceOf(_lazySingletonChecker)) {
         _injectableType = InjectableType.lazySingleton;
         disposeFuncFromAnnotation = injectable
             .peek('dispose')
             ?.objectValue
             .toFunctionValue();
-      } else if (injectable.instanceOf(
-        TypeChecker.typeNamed(Singleton, inPackage: 'injectable'),
-      )) {
+      } else if (injectable.instanceOf(_singletonChecker)) {
         _injectableType = InjectableType.singleton;
         _signalsReady = injectable.peek('signalsReady')?.boolValue;
         disposeFuncFromAnnotation = injectable
