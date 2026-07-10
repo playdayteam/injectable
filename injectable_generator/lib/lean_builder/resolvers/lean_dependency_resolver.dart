@@ -54,7 +54,9 @@ const _postConstructChecker = TypeChecker.typeNamed(
 );
 const _orderChecker = TypeChecker.typeNamed(Order, inPackage: 'injectable');
 
+/// Lean implementation of dependency resolution for [DependencyConfig] generation.
 class LeanDependencyResolver {
+  /// The type resolver used to resolve parameter types.
   final LeanTypeResolver _typeResolver;
 
   late ImportableType _type;
@@ -75,13 +77,16 @@ class LeanDependencyResolver {
   String? _scope;
   bool _cache = false;
 
+  /// Default constructor
   LeanDependencyResolver(this._typeResolver);
 
+  /// Resolves a [ClassElement] into a [DependencyConfig].
   DependencyConfig resolve(ClassElement element) {
     _type = _typeResolver.resolveType(element.thisType);
     return _resolveActualType(element);
   }
 
+  /// Resolves a module member into a [DependencyConfig].
   DependencyConfig resolveModuleMember(
     ClassElement moduleClazz,
     ExecutableElement executableElement,
@@ -353,7 +358,7 @@ class LeanDependencyResolver {
           type: resolvedType,
           instanceName: instanceName,
           isFactoryParam: isFactoryParam,
-          paramName: param.name,
+          paramName: _publicParamName(param),
           isPositional: param.isPositional,
           isRequired: param.isRequired,
         ),
@@ -464,4 +469,16 @@ class LeanDependencyResolver {
       cache: _cache,
     );
   }
+}
+
+// For Dart 3.9 private named formal parameters (`this._x` / `super._x`) the
+// callsite must use the public name (stripped underscore). Strip the leading
+// underscore for any named parameter so generated code is valid regardless of
+// whether the upstream toolchain has already normalized the name.
+String _publicParamName(ParameterElement param) {
+  final name = param.name;
+  if (param.isNamed && name.startsWith('_') && name.length > 1) {
+    return name.substring(1);
+  }
+  return name;
 }

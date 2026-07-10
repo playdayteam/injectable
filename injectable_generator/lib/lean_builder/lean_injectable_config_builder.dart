@@ -1,23 +1,18 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:code_builder/code_builder.dart';
 import 'package:collection/collection.dart';
 import 'package:dart_style/dart_style.dart';
-import 'package:glob/glob.dart';
-import 'package:glob/list_local_fs.dart';
 import 'package:injectable/injectable.dart';
 import 'package:injectable_generator/code_builder/allocator.dart';
 import 'package:injectable_generator/code_builder/library_builder.dart';
 import 'package:injectable_generator/lean_builder/resolvers/lean_importable_type_resolver.dart';
 import 'package:injectable_generator/models/dependency_config.dart';
 import 'package:injectable_generator/models/external_module_config.dart';
-import 'package:injectable_generator/models/importable_type.dart';
 import 'package:lean_builder/builder.dart';
 import 'package:lean_builder/element.dart';
 import 'package:lean_builder/type.dart';
 
-import 'package:injectable_generator/utils.dart';
 import 'package:recase/recase.dart';
 
 import '../resolver_utils.dart';
@@ -35,6 +30,7 @@ const _moduleChecker = TypeChecker.typeNamed(
   key: 'InjectableConfigGenerator',
   registerTypes: {InjectableInit},
 )
+/// Generates the final `.config.dart` file for lean builder.
 class InjectableConfigGenerator
     extends GeneratorForAnnotatedFunction<InjectableInit> {
   @override
@@ -50,7 +46,6 @@ class InjectableConfigGenerator
         .literalValue
         .cast<String>();
 
-    final usesNullSafety = annotation.getBool('usesNullSafety')!.value;
     final isMicroPackage = annotation.getBool('_isMicroPackage')!.value;
     final usesConstructorCallback = annotation
         .getBool('usesConstructorCallback')!
@@ -70,13 +65,11 @@ class InjectableConfigGenerator
             .map((e) => e.getString('name')?.value) ??
         {};
 
-    final includeMicroPackages = annotation
-        .getBool("includeMicroPackages")!
-        .value;
-
     final generateAccessors = annotation.getBool("generateAccessors")!.value;
 
-    final rootDir = annotation.getString('rootDir')?.value;
+    final allowMultipleRegistrations = annotation
+        .getBool('allowMultipleRegistrations')!
+        .value;
 
     final jsonData = <Map>[];
 
@@ -137,27 +130,6 @@ class InjectableConfigGenerator
     final microPackagesModules = microPackageModulesBefore.union(
       microPackageModulesAfter,
     );
-    if (!isMicroPackage && includeMicroPackages) {
-      final glob = Glob('**.module.dart', recursive: true);
-      final filesStream = glob.list(root: rootDir);
-
-      await for (final match in filesStream) {
-        final commentAnnotation = File(match.path).readAsLinesSync().first;
-        if (commentAnnotation.contains('@GeneratedMicroModule')) {
-          final segments = commentAnnotation.split(';');
-          if (segments.length == 3) {
-            final externalModule = ExternalModuleConfig(
-              ImportableType(name: segments[1], import: segments[2]),
-            );
-            if (!microPackagesModules.any(
-              (e) => externalModule.module == e.module,
-            )) {
-              microPackageModulesBefore.add(externalModule);
-            }
-          }
-        }
-      }
-    }
 
     final ignoreTypesInPackages =
         annotation
@@ -185,7 +157,9 @@ class InjectableConfigGenerator
       targetFile,
       throwOnMissingDependencies,
     );
-    validateDuplicateDependencies(deps);
+    if (!allowMultipleRegistrations) {
+      validateDuplicateDependencies(deps);
+    }
 
     /// don't allow registering of the same dependency with both async and sync factories
     final groupedByType = deps.groupListsBy((d) => (d.type, d.instanceName));
@@ -220,13 +194,14 @@ class InjectableConfigGenerator
       microPackagesModulesBefore: microPackageModulesBefore,
       microPackagesModulesAfter: microPackageModulesAfter,
       usesConstructorCallback: usesConstructorCallback,
+      allowMultipleRegistrations: allowMultipleRegistrations,
     );
 
     final generatedLib = generator.generate();
     final emitter = DartEmitter(
       allocator: HashedAllocator(),
       orderDirectives: true,
-      useNullSafetySyntax: usesNullSafety,
+      useNullSafetySyntax: true,
     );
 
     final output = DartFormatter(
@@ -234,10 +209,8 @@ class InjectableConfigGenerator
     ).format(generatedLib.accept(emitter).toString());
 
     if (isMicroPackage) {
-      final outputUri = buildStep.asset.uriWithExtension('.module.dart');
       return buildStep.writeAsString(
         [
-          '//@GeneratedMicroModule;${capitalize(buildStep.asset.packageName!.pascalCase)}PackageModule;$outputUri',
           defaultFileHeader,
           output,
         ].join('\n'),

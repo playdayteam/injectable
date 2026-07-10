@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:analyzer/dart/element/element.dart';
 import 'package:build/build.dart';
@@ -7,19 +6,15 @@ import 'package:code_builder/code_builder.dart';
 import 'package:collection/collection.dart';
 import 'package:dart_style/dart_style.dart';
 import 'package:glob/glob.dart';
-import 'package:glob/list_local_fs.dart';
 import 'package:injectable/injectable.dart';
 import 'package:injectable_generator/code_builder/allocator.dart';
 import 'package:injectable_generator/code_builder/library_builder.dart';
 import 'package:injectable_generator/models/dependency_config.dart';
 import 'package:injectable_generator/models/external_module_config.dart';
-import 'package:injectable_generator/models/importable_type.dart';
 import 'package:injectable_generator/resolver_utils.dart';
 import 'package:injectable_generator/resolvers/importable_type_resolver.dart';
 import 'package:recase/recase.dart';
 import 'package:source_gen/source_gen.dart';
-
-import 'package:injectable_generator/utils.dart';
 
 import '../resolvers/utils.dart' show throwIf;
 
@@ -28,6 +23,7 @@ const _moduleChecker = TypeChecker.typeNamed(
   inPackage: 'injectable',
 );
 
+/// Generates the final `.config.dart` file with dependency registration code.
 class InjectableConfigGenerator extends GeneratorForAnnotation<InjectableInit> {
   @override
   dynamic generateForAnnotatedElement(
@@ -40,7 +36,6 @@ class InjectableConfigGenerator extends GeneratorForAnnotation<InjectableInit> {
         .listValue
         .map((e) => e.toStringValue());
 
-    final usesNullSafety = annotation.read('usesNullSafety').boolValue;
     final isMicroPackage = annotation.read('_isMicroPackage').boolValue;
     final usesConstructorCallback = annotation
         .read('usesConstructorCallback')
@@ -57,13 +52,11 @@ class InjectableConfigGenerator extends GeneratorForAnnotation<InjectableInit> {
         .setValue
         .map((e) => e.getField('name')?.toStringValue());
 
-    final includeMicroPackages = annotation
-        .read("includeMicroPackages")
-        .boolValue;
-
     final generateAccessors = annotation.read("generateAccessors").boolValue;
 
-    final rootDir = annotation.peek('rootDir')?.stringValue;
+    final allowMultipleRegistrations = annotation
+        .read('allowMultipleRegistrations')
+        .boolValue;
 
     final dirPattern = generateForDir.length > 1
         ? '{${generateForDir.join(',')}}'
@@ -120,27 +113,6 @@ class InjectableConfigGenerator extends GeneratorForAnnotation<InjectableInit> {
     final microPackagesModules = microPackageModulesBefore.union(
       microPackageModulesAfter,
     );
-    if (!isMicroPackage && includeMicroPackages) {
-      final glob = Glob('**.module.dart', recursive: true);
-      final filesStream = glob.list(root: rootDir);
-
-      await for (final match in filesStream) {
-        final commentAnnotation = File(match.path).readAsLinesSync().first;
-        if (commentAnnotation.contains('@GeneratedMicroModule')) {
-          final segments = commentAnnotation.split(';');
-          if (segments.length == 3) {
-            final externalModule = ExternalModuleConfig(
-              ImportableType(name: segments[1], import: segments[2]),
-            );
-            if (!microPackagesModules.any(
-              (e) => externalModule.module == e.module,
-            )) {
-              microPackageModulesBefore.add(externalModule);
-            }
-          }
-        }
-      }
-    }
 
     final ignoreTypesInPackages = annotation
         .read('ignoreUnregisteredTypesInPackages')
@@ -166,7 +138,9 @@ class InjectableConfigGenerator extends GeneratorForAnnotation<InjectableInit> {
       targetFile,
       throwOnMissingDependencies,
     );
-    validateDuplicateDependencies(deps);
+    if (!allowMultipleRegistrations) {
+      validateDuplicateDependencies(deps);
+    }
 
     /// don't allow registering of the same dependency with both async and sync factories
     final groupedByType = deps.groupListsBy((d) => (d.type, d.instanceName));
@@ -201,13 +175,14 @@ class InjectableConfigGenerator extends GeneratorForAnnotation<InjectableInit> {
       microPackagesModulesBefore: microPackageModulesBefore,
       microPackagesModulesAfter: microPackageModulesAfter,
       usesConstructorCallback: usesConstructorCallback,
+      allowMultipleRegistrations: allowMultipleRegistrations,
     );
 
     final generatedLib = generator.generate();
     final emitter = DartEmitter(
       allocator: HashedAllocator(),
       orderDirectives: true,
-      useNullSafetySyntax: usesNullSafety,
+      useNullSafetySyntax: true,
     );
 
     final output = DartFormatter(
@@ -218,11 +193,7 @@ class InjectableConfigGenerator extends GeneratorForAnnotation<InjectableInit> {
       final outputId = buildStep.inputId.changeExtension('.module.dart');
       return buildStep.writeAsString(
         outputId,
-        [
-          '//@GeneratedMicroModule;${capitalize(buildStep.inputId.package.pascalCase)}PackageModule;${outputId.uri}',
-          defaultFileHeader,
-          output,
-        ].join('\n'),
+        [defaultFileHeader, output].join('\n'),
       );
     }
     return output;

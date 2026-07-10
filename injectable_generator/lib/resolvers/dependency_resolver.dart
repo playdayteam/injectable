@@ -55,6 +55,8 @@ const _postConstructChecker = TypeChecker.typeNamed(
 );
 const _orderChecker = TypeChecker.typeNamed(Order, inPackage: 'injectable');
 
+/// Resolves a [DependencyConfig] from a given [ClassElement] or a module member [ExecutableElement]
+/// by reading the annotations and parameters of the element.
 class DependencyResolver {
   final ImportableTypeResolver _typeResolver;
 
@@ -76,13 +78,17 @@ class DependencyResolver {
   String? _scope;
   bool _cache = false;
 
+  /// Creates a new instance of [DependencyResolver] with the given [ImportableTypeResolver].
   DependencyResolver(this._typeResolver);
 
+  /// Resolves a [DependencyConfig] from the given [ClassElement] by reading its annotations and parameters.
   DependencyConfig resolve(ClassElement element) {
     _type = _typeResolver.resolveType(element.thisType);
     return _resolveActualType(element);
   }
 
+  /// Resolves a [DependencyConfig] from the given module member [ExecutableElement] by reading its annotations and parameters.
+  /// The [moduleClazz] parameter is used to resolve the type of the module that contains the member.
   DependencyConfig resolveModuleMember(
     ClassElement moduleClazz,
     ExecutableElement executableElement,
@@ -342,9 +348,23 @@ class DependencyResolver {
           namedAnnotation?.getField('type')?.toTypeValue()?.nameWithoutSuffix ??
           namedAnnotation?.getField('name')?.toStringValue();
 
-      final resolvedType = param.type is FunctionType
-          ? _typeResolver.resolveFunctionType(param.type as FunctionType)
-          : _typeResolver.resolveType(param.type);
+      var paramType = param.type;
+      // Dart 3.9 private named formal parameters ("this._x" / "super._x")
+      // can leave [param.type] as `dynamic` when the analyzer can't reach the
+      // linked field / super parameter (cross-file generic supertypes are a
+      // known case). Fall back to walking the link manually.
+      if (paramType is DynamicType) {
+        if (param is FieldFormalParameterElement) {
+          paramType = param.field?.type ?? paramType;
+        } else if (param is SuperFormalParameterElement) {
+          paramType = _resolveSuperFormalType(param) ?? paramType;
+        }
+      }
+
+      final resolvedType = paramType is FunctionType
+          ? _typeResolver.resolveFunctionType(paramType)
+          : _typeResolver.resolveType(paramType);
+
       final isFactoryParam = _factoryParamChecker.hasAnnotationOfExact(
         param,
         throwOnUnresolved: false,
@@ -361,7 +381,7 @@ class DependencyResolver {
           type: resolvedType,
           instanceName: instanceName,
           isFactoryParam: isFactoryParam,
-          paramName: param.displayName,
+          paramName: _publicParamName(param),
           isPositional: param.isPositional,
           isRequired: param.isRequired,
         ),
@@ -468,5 +488,57 @@ class DependencyResolver {
       postConstructReturnsSelf: postConstructReturnsSelf,
       cache: _cache,
     );
+  }
+}
+
+// For Dart 3.9 private named formal parameters (`this._x` / `super._x`) the
+// callsite must use the public name (stripped underscore). Newer analyzers
+// already normalize [name] to the public form, but on older toolchains
+// [displayName] still returns the underscored name — strip it explicitly so
+// generated code is valid in either case.
+String _publicParamName(FormalParameterElement param) {
+  final name = param.displayName;
+  if (param.isNamed && name.startsWith('_') && name.length > 1) {
+    return name.substring(1);
+  }
+  return name;
+}
+
+// Walk the supertype constructor manually to recover a super-formal's type.
+// Analyzer can leave [SuperFormalParameterElement.superConstructorParameter]
+// `null` when the super constructor uses private named field-formals across
+// library boundaries, even though the link is syntactically valid.
+DartType? _resolveSuperFormalType(SuperFormalParameterElement param) {
+  final enclosing = param.enclosingElement;
+  if (enclosing is! ConstructorElement) return null;
+  final publicName = _publicParamName(param);
+
+  // Walk the supertype chain. Super-formals forward by name, so we keep the
+  // same [publicName] while walking up until we find a non-dynamic type or
+  // run out of supertypes.
+  var currentClass = enclosing.enclosingElement;
+  var invokedSuperName = enclosing.superConstructor?.name ?? 'new';
+
+  while (true) {
+    final superType = currentClass.supertype;
+    if (superType == null) return null;
+    final substitutedSuperCtor = superType.constructors.firstWhereOrNull(
+      (c) => (c.name ?? 'new') == invokedSuperName,
+    );
+    if (substitutedSuperCtor == null) return null;
+
+    final match = substitutedSuperCtor.formalParameters.firstWhereOrNull(
+      (p) => _publicParamName(p) == publicName,
+    );
+    if (match == null) return null;
+    if (match.type is! DynamicType) return match.type;
+
+    // The intermediate class's parameter also resolved to `dynamic` — most
+    // likely because it is itself a super-formal forwarding further up the
+    // chain. Continue walking with the unnamed super constructor of the next
+    // level (super-formals always invoke the default constructor of their
+    // immediate supertype).
+    currentClass = superType.element;
+    invokedSuperName = 'new';
   }
 }
