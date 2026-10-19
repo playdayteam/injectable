@@ -1,4 +1,11 @@
 # ChangeLog
+## [3.1.3]
+- Chore: update lean_builder to ^1.2.2
+## [3.1.2]
+- Chore: update analyzer constraint to ">=10.0.0 <15.0.0"
+- Chore: update lean_builder to ^1.2.1
+## [3.1.1]
+- Chore: decrease injectable_generator minimum analyzer constraint
 ## [3.1.0]
 - Fix: avoid import alias collisions in HashedAllocator (#544) by @kmslab20
 - Feat: support private named parameters by @jkoenig134
